@@ -1,0 +1,5 @@
+^vignettes/.*\.Rmd$
+^inst/.*\.md$
+^README\.md$
+^.*\.Rproj$
+^\.Rproj\.user$

@@ -1,0 +1,32 @@
+---
+title: "Integration Shiny avec coulisse"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Integration Shiny avec coulisse}
+  %\VignetteEngine{knitr::rmarkdown}
+---
+
+```r
+library(shiny)
+library(coulisse)
+```
+
+## Manager & lancement d'un job
+
+```r
+ui <- fluidPage(
+  actionButton("go", "Run"),
+  verbatimTextOutput("out")
+)
+
+server <- function(input, output, session) {
+  mgr <- bg_manager_create(session, notify = "shiny", verbosity = "info")
+  res <- reactiveVal(NULL)
+  observeEvent(input$go, {
+    mgr$run(function() { Sys.sleep(1); 42 },
+      label = "demo", on_success = function(v, m) res(paste("val =", v)))
+  })
+  output$out <- renderText(res())
+}
+shinyApp(ui, server)
+```

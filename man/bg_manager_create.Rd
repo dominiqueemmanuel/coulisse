@@ -16,7 +16,9 @@ bg_manager_create(
   notify = "none",
   verbosity = "info",
   queue_limit = Inf,
-  idle_shutdown_s = 300L
+  idle_shutdown_s = 300L,
+  r_default_packages = c("base", "stats", "utils"),
+  extra_env = NULL
 )
 }
 \arguments{
@@ -43,6 +45,10 @@ bg_manager_create(
 \item{queue_limit}{taille max de la file (Inf = illimite)}
 
 \item{idle_shutdown_s}{reserve pour engine 'session' (non utilise ici)}
+
+\item{r_default_packages}{vector of package names for R_DEFAULT_PACKAGES in workers}
+
+\item{extra_env}{named character vector of extra env vars for workers (optional)}
 }
 \value{
 une liste: run(), kill(), kill_all(), journal(), any_running(), any_work(), beat(), interval_ms()

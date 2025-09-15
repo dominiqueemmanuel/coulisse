@@ -12,6 +12,9 @@
 #' @param verbosity "silent"|"info"|"debug"
 #' @param queue_limit taille max de la file (Inf = illimite)
 #' @param idle_shutdown_s reserve pour engine 'session' (non utilise ici)
+#' @param r_default_packages vector of package names for R_DEFAULT_PACKAGES in workers
+#' @param extra_env named character vector of extra env vars for workers (optional)
+
 #'
 #' @importFrom utils modifyList
 #' @return une liste: run(), kill(), kill_all(), journal(), any_running(), any_work(), beat(), interval_ms()
@@ -28,7 +31,9 @@ bg_manager_create <- function(
   notify = "none",
   verbosity = "info",
   queue_limit = Inf,
-  idle_shutdown_s = 300L
+  idle_shutdown_s = 300L,
+  r_default_packages = c("base","stats","utils"),
+  extra_env = NULL
 ) {
   stopifnot(max_workers >= 1L)
 
@@ -49,7 +54,9 @@ bg_manager_create <- function(
   st$queue  <- list()
   st$active <- list()
   st$maxw   <- as.integer(max_workers)
-
+  st$r_default_packages <- r_default_packages
+  st$extra_env          <- extra_env
+  
   .beat <- shiny::reactiveVal(0L)
   .interval_ms_val <- shiny::reactiveVal(as.integer(beat_fast_ms))
   interval_ms <- shiny::reactive(.interval_ms_val())
@@ -159,7 +166,11 @@ bg_manager_create <- function(
       }
 
       p <- bg_fast_start(child_fun, args = list(callable = x$callable, args = x$args,
-                                                use_qs = x$use_qs, qs_path = qs_path))
+                                                use_qs = x$use_qs, qs_path = qs_path),
+                         r_default_packages = st$r_default_packages,
+                         extra_env = st$extra_env
+      )
+      
       st$active[[x$id]] <- modifyList(x, list(proc = p, started_at = Sys.time(), qs_path = qs_path))
       mark_running(x$id, p$get_pid(), st$active[[x$id]]$started_at)
       .notify("info", sprintf("[start] %s (pid %s)", x$meta$label, p$get_pid()), level = "debug")

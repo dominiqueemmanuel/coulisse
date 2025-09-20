@@ -123,7 +123,7 @@ bg_manager_create <- function(
   st$extra_env          <- extra_env
   st$ui_seen_queued <- character(0)
   
-  .beat <- shiny::reactiveVal(0L)
+  
   .interval_ms_val <- shiny::reactiveVal(as.integer(beat_fast_ms))
   interval_ms <- shiny::reactive(.interval_ms_val())
   
@@ -153,25 +153,28 @@ bg_manager_create <- function(
   run <- function(fun_or_expr, args = list(), label = NULL,
                   on_success = NULL, on_error = NULL, on_timeout = NULL, on_final = NULL,
                   trace = NULL, timeout_ms = NULL, use_qs = NULL) {
-    cat(paste0('\nu1 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    on.exit({
+      rv_beat(isolate(rv_beat())+1L)
+    })
+    
     if (length(st$queue) >= queue_limit) {
       .notify("warning", sprintf("Queue full (%s). Job refused.", queue_limit), level = "info")
       return(invisible(NULL))
     }
-    cat(paste0('\nu2 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     callable <- wrap_callable(fun_or_expr)
-    cat(paste0('\nu3 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     id <- new_id()
-    cat(paste0('\nu4 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     meta <- list(id = id, label = if (is.null(label)) paste0("job@", id) else label)
-    cat(paste0('\nu5 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     ## tracing enqueue_start
     t_enq0 <- .bg_now_ms()
-    cat(paste0('\nu6 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     .notify("hard_debug", "[enq] start",
             level = "hard_debug",
             .fields = list(job_id = id, phase = "enqueue_start"))
-    cat(paste0('\nu7 : ',format(Sys.time(),format="%H:%M:%OS3")))
+    
     st$queue <- c(st$queue, list(list(
       id = id, callable = callable, args = args, meta = meta,
       on_success = on_success, on_error = on_error, on_timeout = on_timeout, on_final = on_final,
@@ -182,27 +185,30 @@ bg_manager_create <- function(
       qs_path = NULL, enqueued_at = Sys.time(), started_at = NA,
       spawn_t0_ms = NA_integer_, child_log = NA_character_
     )))
-    cat(paste0('\nu8 : ',format(Sys.time(),format="%H:%M:%OS3")))
-    add_row(data.frame(
-      id = id, label = meta$label, pid = NA_integer_,
-      status = factor("queued", levels = c("queued","running","done","error","killed","timeout")),
-      started_at = as.POSIXct(NA), finished_at = as.POSIXct(NA), stringsAsFactors = FALSE
-    ))
-    cat(paste0('\nu9 : ',format(Sys.time(),format="%H:%M:%OS3")))
-    ## tracing enqueue_end
-    .notify("hard_debug", "[queue] enqueued",
-            level = "hard_debug",
-            .fields = list(job_id = id, phase = "enqueue_end",
-                           dt_ms = .bg_now_ms() - t_enq0))
-    
-    .beat(shiny::isolate(.beat()) + 1L)
-    .notify("info", sprintf("[queued] %s added to queue", meta$label), level = "info")
-    rv_beat(isolate(rv_beat())+1L)
-    invisible(id)
+
+add_row(data.frame(
+  id = id, label = meta$label, pid = NA_integer_,
+  status = factor("queued", levels = c("queued","running","done","error","killed","timeout")),
+  started_at = as.POSIXct(NA), finished_at = as.POSIXct(NA), stringsAsFactors = FALSE
+))
+
+## tracing enqueue_end
+.notify("hard_debug", "[queue] enqueued",
+        level = "hard_debug",
+        .fields = list(job_id = id, phase = "enqueue_end",
+                       dt_ms = .bg_now_ms() - t_enq0))
+
+
+.notify("info", sprintf("[queued] %s added to queue", meta$label), level = "info")
+
+invisible(id)
   }
   
   ## -- API: kill -------------------------------------------------------------
   kill <- function(id) {
+    on.exit({
+      rv_beat(isolate(rv_beat())+1L)
+    })
     if (!is.null(st$active[[id]])) {
       x <- st$active[[id]]; p <- x$proc
       if (!is.null(p) && p$is_alive()) p$kill()
@@ -223,6 +229,7 @@ bg_manager_create <- function(
               .fields = list(job_id = id, phase = "killed_queued"))
       return(invisible(TRUE))
     }
+    
     invisible(FALSE)
   }
   
@@ -326,19 +333,15 @@ bg_manager_create <- function(
   t0=Sys.time()
   
   
-  
-  
   # Fonction pour incrémenter le déclencheur à intervalles réguliers
   rv_any_work <- reactiveVal(TRUE)
   rv_beat <- reactiveVal(0L)
   observe({
-    st$active
-    st$queue
     invalidateLater(.interval_ms_val(),session)
     rv_beat(isolate(rv_beat())+1L)
   })
   
-
+  
   
   shiny::observeEvent(rv_beat(),{
     any_work <- (length(st$queue) + length(st$active)) > 0L
@@ -357,10 +360,10 @@ bg_manager_create <- function(
       ))
       
     }
-    .beat(shiny::isolate(.beat()) + 1L)
+    
     
     ### >>> AJOUT : tracer chaque tick de poll (point)
-    .notify("hard_debug", "poll" |> paste(.beat()), .fields = list(
+    .notify("hard_debug", "poll", .fields = list(
       phase       = "poll_tick",
       lane        = "manager",
       job_id      = "(session)",
@@ -369,13 +372,13 @@ bg_manager_create <- function(
       a_len       = length(st$active)
     ))
     ### <<< AJOUT
-   
+    
     
     ## tracer "enqueue_visible" pour les jobs que l'UI voit comme 'queued'
     df <- journal()
     queued_ids <- df$id[df$status == "queued"]
     new_visible <- setdiff(queued_ids, st$ui_seen_queued)
-
+    
     if (length(new_visible)) {
       for (jid in new_visible) {
         .notify("hard_debug", "[ui] visible",
@@ -386,7 +389,7 @@ bg_manager_create <- function(
       }
       st$ui_seen_queued <- union(st$ui_seen_queued, new_visible)
     }
-
+    
     start_next_if_possible()
     
     if (length(st$active) == 0L) return()
@@ -400,9 +403,9 @@ bg_manager_create <- function(
       
       
       try(p$wait(1), silent = TRUE)  # non-blocking refresh
-     
       
-     
+      
+      
       
       if (!is.na(x$start_timeout_ms)) {
         if (is.na(x$started_at)) x$started_at <- st$active[[id]]$started_at
@@ -440,81 +443,6 @@ bg_manager_create <- function(
         }
         next
       }
-      
-      ## terminé (normalement ou en erreur)
-      ### >>> AJOUT : chronométrer get_result()
-      # t_gr0 <- .bg_now_ms()
-      # .notify("hard_debug", "mgr_io", .fields = list(
-      #   phase = "get_result_start", lane = "manager", job_id = id
-      # ))
-      # res <- try(p$get_result(), silent = TRUE)
-      # .notify("hard_debug", "mgr_io", .fields = list(
-      #   phase = "get_result_end", lane = "manager", job_id = id,
-      #   dt_ms = .bg_now_ms() - t_gr0
-      # ))
-      # ### <<< AJOUT
-      # 
-      # ### >>> AJOUT : chrono total callbacks (succès/erreur/final)
-      # t_cb0 <- .bg_now_ms()
-      # ### <<< AJOUT
-      # 
-      # if (inherits(res, "try-error")) {
-      #   set_status(id, "error", TRUE)
-      #   if (is.function(x$on_error)) try(x$on_error(as.character(res), x$meta), silent = TRUE)
-      #   if (is.function(x$on_final)) try(x$on_final("error", x$meta), silent = TRUE)
-      #   if (!is.null(x$qs_path) && isTRUE(cleanup_qs) && file.exists(x$qs_path)) unlink(x$qs_path, force=TRUE)
-      #   .notify("hard_debug", "mgr_status", .fields = list(
-      #     phase="manager_error_emit", lane="manager", job_id=id
-      #   ))
-      #   .notify("error", sprintf("[error] %s", x$meta$label), level = "info",
-      #           .fields = list(job_id = id, phase = "error_child"))
-      # } else {
-      #   final_val <- res
-      #   if (is.list(res) && !is.null(res$.qs)) {
-      #     t_rd0 <- .bg_now_ms()
-      #     final_val <- try(qs::qread(res$.qs), silent = TRUE)
-      #     .notify("hard_debug", "[result] deserialize_end",
-      #             level = "hard_debug",
-      #             .fields = list(job_id = id, phase = "result_deserialize_end",
-      #                            dt_ms = .bg_now_ms() - t_rd0,
-      #                            bytes = if (file.exists(res$.qs)) file.size(res$.qs) else NA_integer_))
-      #     if (inherits(final_val, "try-error")) {
-      #       set_status(id, "error", TRUE)
-      #       if (is.function(x$on_error)) try(x$on_error(as.character(final_val), x$meta), silent = TRUE)
-      #       if (is.function(x$on_final)) try(x$on_final("error", x$meta), silent = TRUE)
-      #       if (file.exists(res$.qs) && isTRUE(cleanup_qs)) unlink(res$.qs, force = TRUE)
-      #       .notify("error", sprintf("[error] %s (qs read)", x$meta$label), level = "info",
-      #               .fields = list(job_id = id, phase = "error_qs_read"))
-      #       st$active[[id]] <- NULL
-      #       ### >>> AJOUT : fin callbacks même en erreur
-      #       .notify("hard_debug", "callbacks", .fields = list(
-      #         phase="callbacks_end", lane="manager", job_id=id,
-      #         dt_ms = .bg_now_ms() - t_cb0
-      #       ))
-      #       ### <<< AJOUT
-      #       next
-      #     }
-      #     if (file.exists(res$.qs) && isTRUE(cleanup_qs)) unlink(res$.qs, force=TRUE)
-      #   }
-      #   set_status(id, "done", TRUE)
-      #   if (is.function(x$on_success)) try(x$on_success(final_val, x$meta), silent = TRUE)
-      #   if (is.function(x$on_final))   try(x$on_final("done", x$meta), silent = TRUE)
-      #   .notify("hard_debug", "mgr_status", .fields = list(
-      #     phase="manager_done_emit", lane="manager", job_id=id
-      #   ))
-      #   .notify("info", sprintf("[done] %s", x$meta$label), level = "info",
-      #           .fields = list(job_id = id, phase = "done"))
-      # }
-      # 
-      # ### >>> AJOUT : tracer la durée totale des callbacks
-      # .notify("hard_debug", "callbacks", .fields = list(
-      #   phase="callbacks_end", lane="manager", job_id=id,
-      #   dt_ms = .bg_now_ms() - t_cb0
-      # ))
-      # ### <<< AJOUT
-      # 
-      # st$active[[id]] <- NULL
-      ## terminé (normalement ou en erreur)
       
       ## --- FAST PATH : éviter p$get_result() si possible (use_qs & fast_collect) ----
       if (isTRUE(x$use_qs) && isTRUE(fast_collect) && !is.null(x$qs_path)) {
@@ -620,7 +548,7 @@ bg_manager_create <- function(
     journal     = shiny::reactive(journal()),
     any_running = shiny::reactive(length(st$active) > 0L),
     any_work    = shiny::reactive((length(st$queue) + length(st$active)) > 0L),
-    beat        = shiny::reactive(.beat()),
+    beat        = shiny::reactive(rv_beat()),
     interval_ms = interval_ms,
     notify_file = function() attr(notifier, "write_path", exact = TRUE),
     notify_dir  = function() normalizePath(notify_dir, mustWork = FALSE),

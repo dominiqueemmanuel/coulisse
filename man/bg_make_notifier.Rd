@@ -6,16 +6,16 @@
 \usage{
 bg_make_notifier(
   mode = c("none", "shiny", "message"),
-  verbosity = c("silent", "info", "debug")
+  verbosity = c("silent", "info", "debug", "hard_debug")
 )
 }
 \arguments{
 \item{mode}{"none" | "shiny" | "message" | function(type, text)}
 
-\item{verbosity}{"silent" | "info" | "debug"}
+\item{verbosity}{"silent" | "info" | "debug" | "hard_debug"}
 }
 \value{
-une fonction notifier(type, text, level = "info")
+une fonction notifier(type, text, level = "info", duration = 1.1)
 }
 \description{
 Construire un notifier

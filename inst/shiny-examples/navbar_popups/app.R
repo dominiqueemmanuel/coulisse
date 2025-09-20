@@ -28,12 +28,12 @@ ui <- bs4Dash::dashboardPage(
   body = bs4Dash::dashboardBody(
     # CSS badge + JS pour remonter le clic cloche à Shiny
     shiny::tags$head(
-      shiny::tags$style(HTML("
+      shiny::tags$style(shiny::HTML("
         .navbar-badge { font-size: 0.75rem; position: absolute; top: 9px; right: 8px; }
         .dropdown-menu .badge { margin-left: 6px; }
         .dropdown-item { white-space: normal; }
       ")),
-      shiny::tags$script(HTML("
+      shiny::tags$script(shiny::HTML("
         $(document).on('click', 'a#notif_toggle', function(){
           Shiny.setInputValue('notif_toggle', Date.now(), {priority: 'event'});
         });

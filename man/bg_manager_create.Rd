@@ -18,7 +18,10 @@ bg_manager_create(
   queue_limit = Inf,
   idle_shutdown_s = 300L,
   r_default_packages = c("base", "stats", "utils"),
-  extra_env = NULL
+  extra_env = NULL,
+  write_notify_table = FALSE,
+  notify_dir = tempdir(),
+  fast_collect = FALSE
 )
 }
 \arguments{
@@ -30,9 +33,9 @@ bg_manager_create(
 
 \item{start_timeout_ms}{timeout de demarrage (ms) (NA = desactive)}
 
-\item{beat_fast_ms}{periode de poll qu&& il y a du travail (ms)}
+\item{beat_fast_ms}{periode de poll quand il y a du travail (ms)}
 
-\item{beat_slow_ms}{periode de poll qu&& idle (ms)}
+\item{beat_slow_ms}{periode de poll quand idle (ms)}
 
 \item{default_use_qs}{TRUE = serialiser via qs par defaut, sinon retour direct}
 
@@ -40,7 +43,7 @@ bg_manager_create(
 
 \item{notify}{"none"|"shiny"|"message"|function(type,text)}
 
-\item{verbosity}{"silent"|"info"|"debug"}
+\item{verbosity}{"silent"|"info"|"debug"|"hard_debug"}
 
 \item{queue_limit}{taille max de la file (Inf = illimite)}
 
@@ -49,6 +52,12 @@ bg_manager_create(
 \item{r_default_packages}{vector of package names for R_DEFAULT_PACKAGES in workers}
 
 \item{extra_env}{named character vector of extra env vars for workers (optional)}
+
+\item{write_notify_table}{logical. Si TRUE, ecrit un log JSON Lines de tous les notify}
+
+\item{notify_dir}{dossier ou ecrire le/les fichiers JSONL}
+
+\item{fast_collect}{logical (si TRUE, court-cictuite le get_result et  lis directement le .qs)}
 }
 \value{
 une liste: run(), kill(), kill_all(), journal(), any_running(), any_work(), beat(), interval_ms()

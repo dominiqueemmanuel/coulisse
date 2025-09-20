@@ -2,15 +2,15 @@
 % Please edit documentation in R/bg_manager.R
 \name{bg_manager_create}
 \alias{bg_manager_create}
-\title{Creer un manager de jobs pour Shiny (engine = "bg")}
+\title{Créer un gestionnaire de jobs en arrière-plan}
 \usage{
 bg_manager_create(
   session = shiny::getDefaultReactiveDomain(),
   max_workers = 1L,
   default_timeout_ms = 120000L,
   start_timeout_ms = NA_integer_,
-  beat_fast_ms = 100L,
-  beat_slow_ms = 800L,
+  beat_fast_ms = 200L,
+  beat_slow_ms = 3000L,
   default_use_qs = TRUE,
   cleanup_qs = TRUE,
   notify = "none",
@@ -21,7 +21,11 @@ bg_manager_create(
   extra_env = NULL,
   write_notify_table = FALSE,
   notify_dir = tempdir(),
-  fast_collect = FALSE
+  fast_collect = TRUE,
+  watcher = c("signals", "beat"),
+  signals_dir = tempdir(),
+  signals_interval_ms = 100L,
+  timeout_fallback_ms = 3000L
 )
 }
 \arguments{
@@ -58,10 +62,40 @@ bg_manager_create(
 \item{notify_dir}{dossier ou ecrire le/les fichiers JSONL}
 
 \item{fast_collect}{logical (si TRUE, court-cictuite le get_result et  lis directement le .qs)}
+
+\item{watcher}{\code{"beat"} (par défaut) ou \code{"signals"}. Sélectionne le mécanisme de réveil.}
+
+\item{signals_dir}{Chemin du répertoire où les processus enfants écrivent les fichiers
+de signal (\code{*.sig}) en mode \code{watcher = "signals"}. Par défaut \code{tempdir()}.}
+
+\item{signals_interval_ms}{Intervalle (ms) du \code{reactivePoll()} pour contrôler la
+fréquence de vérification de la \code{mtime} des fichiers de signaux.}
+
+\item{timeout_fallback_ms}{Intervalle (ms) d'un tick de secours \emph{léger} utilisé
+uniquement lorsqu'il y a des jobs actifs, afin d'évaluer les timeouts de démarrage/exécution
+même si aucun nouveau signal n'arrive. Ignoré lorsqu'il n'y a pas de jobs actifs.}
 }
 \value{
-une liste: run(), kill(), kill_all(), journal(), any_running(), any_work(), beat(), interval_ms()
+Un objet \code{coulisse_manager}.
 }
 \description{
-Creer un manager de jobs pour Shiny (engine = "bg")
+Construit et initialise un \emph{manager} pour soumettre et suivre des jobs
+(processus R) démarrés via \code{callr::r_bg()}, avec collecte des résultats,
+gestion des timeouts, callbacks, et intégration Shiny.
+}
+\details{
+Deux modes de réveil (watchers) sont disponibles :
+\itemize{
+\item \strong{"beat"} (historique) : une boucle \code{observe()} + \code{invalidateLater()} réveille
+régulièrement la logique (polling périodique).
+\item \strong{"signals"} (nouveau) : un \code{reactivePoll()} observe un répertoire de \emph{signaux}
+(fichiers \code{*.sig}) écrits par les processus enfants ; ne relit que si quelque chose a changé.
+}
+}
+\examples{
+\dontrun{
+mgr <- bg_manager_create(watcher = "signals",
+                         signals_dir = tempdir(),
+                         signals_interval_ms = 500L)
+}
 }

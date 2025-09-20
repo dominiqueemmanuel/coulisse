@@ -2,15 +2,15 @@
 % Please edit documentation in R/ui_helpers.R
 \name{bg_bind_debug_panel}
 \alias{bg_bind_debug_panel}
-\title{Server binder for debug panel}
+\title{Lier le panneau de debug}
 \usage{
 bg_bind_debug_panel(output, journal_reactive)
 }
 \arguments{
-\item{output}{Shiny output list (server-side)}
+\item{output}{Objet \code{output} de Shiny.}
 
-\item{journal_reactive}{A reactive() returning the jobs data.frame}
+\item{journal_reactive}{Réactif (\code{reactive()}/\code{reactiveVal()}) retournant un data.frame de jobs.}
 }
 \description{
-Server binder for debug panel
+Lie la sortie UI \code{output$bg_debug_panel} à un journal réactif.
 }

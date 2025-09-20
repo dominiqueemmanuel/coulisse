@@ -1,7 +1,7 @@
 Package: coulisse
 Type: Package
 Title: Jobs en arriere-plan pour Shiny via 'callr'
-Version: 0.1.4
+Version: 0.1.5
 Authors@R: 
     person(given = "Dominique",
            family = "Emmanuel",

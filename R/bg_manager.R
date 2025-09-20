@@ -1,5 +1,18 @@
-#' Creer un manager de jobs pour Shiny (engine = "bg")
+#' Créer un gestionnaire de jobs en arrière-plan
 #'
+#' Construit et initialise un \emph{manager} pour soumettre et suivre des jobs
+#' (processus R) démarrés via \code{callr::r_bg()}, avec collecte des résultats,
+#' gestion des timeouts, callbacks, et intégration Shiny.
+#'
+#' Deux modes de réveil (watchers) sont disponibles :
+#' \itemize{
+#' \item \strong{"beat"} (historique) : une boucle \code{observe()} + \code{invalidateLater()} réveille
+#'   régulièrement la logique (polling périodique).
+#' \item \strong{"signals"} (nouveau) : un \code{reactivePoll()} observe un répertoire de \emph{signaux}
+#'   (fichiers \code{*.sig}) écrits par les processus enfants ; ne relit que si quelque chose a changé.
+#' }
+#'
+
 #' @param session domaine reactif Shiny
 #' @param max_workers nombre maximal de jobs en parallele
 #' @param default_timeout_ms timeout d'execution par job (ms)
@@ -17,17 +30,30 @@
 #' @param write_notify_table logical. Si TRUE, ecrit un log JSON Lines de tous les notify
 #' @param notify_dir dossier ou ecrire le/les fichiers JSONL
 #' @param fast_collect logical (si TRUE, court-cictuite le get_result et  lis directement le .qs)
+#' @param watcher \code{"beat"} (par défaut) ou \code{"signals"}. Sélectionne le mécanisme de réveil.
+#' @param signals_dir Chemin du répertoire où les processus enfants écrivent les fichiers
+#'   de signal (\code{*.sig}) en mode \code{watcher = "signals"}. Par défaut \code{tempdir()}.
+#' @param signals_interval_ms Intervalle (ms) du \code{reactivePoll()} pour contrôler la
+#'   fréquence de vérification de la \code{mtime} des fichiers de signaux.
+#' @param timeout_fallback_ms Intervalle (ms) d'un tick de secours \emph{léger} utilisé
+#'   uniquement lorsqu'il y a des jobs actifs, afin d'évaluer les timeouts de démarrage/exécution
+#'   même si aucun nouveau signal n'arrive. Ignoré lorsqu'il n'y a pas de jobs actifs.
 #'
-#' @importFrom utils modifyList
-#' @return une liste: run(), kill(), kill_all(), journal(), any_running(), any_work(), beat(), interval_ms()
+#' @return Un objet \code{coulisse_manager}.
+#' @examples
+#' \dontrun{
+#' mgr <- bg_manager_create(watcher = "signals",
+#'                          signals_dir = tempdir(),
+#'                          signals_interval_ms = 500L)
+#' }
 #' @export
 bg_manager_create <- function(
     session = shiny::getDefaultReactiveDomain(),
     max_workers = 1L,
     default_timeout_ms = 120000L,
     start_timeout_ms = NA_integer_,
-    beat_fast_ms = 100L,
-    beat_slow_ms = 800L,
+    beat_fast_ms = 200L,
+    beat_slow_ms = 3000L,
     default_use_qs = TRUE,
     cleanup_qs = TRUE,
     notify = "none",
@@ -38,9 +64,16 @@ bg_manager_create <- function(
     extra_env = NULL,
     write_notify_table = FALSE,
     notify_dir = tempdir(),
-    fast_collect = FALSE
+    fast_collect = TRUE,
+    watcher = c("signals","beat"),
+    signals_dir = tempdir(),
+    signals_interval_ms = 100L,
+    timeout_fallback_ms = 3000L
 ) {
   stopifnot(max_workers >= 1L)
+  watcher <- match.arg(watcher)
+  signals_dir <- normalizePath(signals_dir, winslash = "/", mustWork = FALSE)
+  if (identical(watcher, "signals") && !dir.exists(signals_dir)) dir.create(signals_dir, recursive = TRUE, showWarnings = FALSE)
   
   ## -- notifier --------------------------------------------------------------
   make_wrapped_notifier <- function(user_fun, verbosity) {
@@ -154,7 +187,7 @@ bg_manager_create <- function(
                   on_success = NULL, on_error = NULL, on_timeout = NULL, on_final = NULL,
                   trace = NULL, timeout_ms = NULL, use_qs = NULL) {
     on.exit({
-      rv_beat(isolate(rv_beat())+1L)
+      rv_beat(shiny::isolate(rv_beat())+1L)
     })
     
     if (length(st$queue) >= queue_limit) {
@@ -207,7 +240,7 @@ invisible(id)
   ## -- API: kill -------------------------------------------------------------
   kill <- function(id) {
     on.exit({
-      rv_beat(isolate(rv_beat())+1L)
+      rv_beat(shiny::isolate(rv_beat())+1L)
     })
     if (!is.null(st$active[[id]])) {
       x <- st$active[[id]]; p <- x$proc
@@ -249,7 +282,7 @@ invisible(id)
       
       child_write_path <- attr(notifier, "write_path", exact = TRUE)
       
-      child_fun <- function(callable, args, use_qs, qs_path, job_id, child_log) {
+      child_fun <- function(callable, args, use_qs, qs_path, job_id, child_log, signals_dir = NULL, watcher = NULL) {
         now_ms  <- function() as.numeric(Sys.time()) * 1000
         to_json <- function(event, fields = list()) {
           now <- Sys.time()
@@ -275,7 +308,8 @@ invisible(id)
         child_notify("user_fn_start", list(job_id = job_id))
         out <- tryCatch(
           do.call(callable, args),
-          error = function(e) { child_notify("child_error", list(job_id = job_id, message = conditionMessage(e))); stop(e) }
+          error = function(e) { child_notify("child_error", list(job_id = job_id, message = conditionMessage(e))); if (!is.null(signals_dir) && identical(watcher,"signals")) {
+            fn <- file.path(signals_dir, paste0(job_id, ".sig")); cat(paste0("error ", as.integer(now_ms())), file = fn) }; stop(e) }
         )
         child_notify("user_fn_end", list(job_id = job_id, dt_ms = now_ms() - t_u0))
         
@@ -285,15 +319,18 @@ invisible(id)
           if (!requireNamespace("qs", quietly = TRUE)) {
             child_notify("serialize_result_end", list(job_id = job_id, dt_ms = now_ms() - t_s0, bytes = NA_integer_))
             child_notify("child_exit1", list(job_id = job_id, total_ms = now_ms() - t_boot0))
-            return(out)
+          if (!is.null(signals_dir) && identical(watcher, "signals")) { fn <- file.path(signals_dir, paste0(job_id, ".sig")); cat(paste0("done ", as.integer(now_ms())), file = fn) }
+                      return(out)
           }
           qs::qsave(out, qs_path, preset = "fast")
           child_notify("serialize_result_end", list(job_id = job_id, dt_ms = now_ms() - t_s0, bytes = file.size(qs_path)))
           child_notify("child_exit2", list(job_id = job_id, total_ms = now_ms() - t_boot0))
-          return(list(.qs = qs_path))
+          if (!is.null(signals_dir) && identical(watcher, "signals")) { fn <- file.path(signals_dir, paste0(job_id, ".sig")); cat(paste0("done ", as.integer(now_ms())), file = fn) }
+                    return(list(.qs = qs_path))
         } else {
           child_notify("child_exit3", list(job_id = job_id, total_ms = now_ms() - t_boot0))
-          return(out)
+          if (!is.null(signals_dir) && identical(watcher, "signals")) { fn <- file.path(signals_dir, paste0(job_id, ".sig")); cat(paste0("done ", as.integer(now_ms())), file = fn) }
+                    return(out)
         }
       }
       
@@ -308,7 +345,7 @@ invisible(id)
         child_fun,
         args = list(callable = x$callable, args = x$args,
                     use_qs = x$use_qs, qs_path = qs_path,
-                    job_id = x$id, child_log = child_write_path),
+                    job_id = x$id, child_log = child_write_path, signals_dir = signals_dir, watcher = watcher),
         r_default_packages = st$r_default_packages,
         extra_env = st$extra_env
       )
@@ -334,12 +371,43 @@ invisible(id)
   
   
   # Fonction pour incrémenter le déclencheur à intervalles réguliers
-  rv_any_work <- reactiveVal(TRUE)
-  rv_beat <- reactiveVal(0L)
-  observe({
-    invalidateLater(.interval_ms_val(),session)
-    rv_beat(isolate(rv_beat())+1L)
-  })
+  rv_any_work <- shiny::reactiveVal(TRUE)
+  rv_beat <- shiny::reactiveVal(0L)
+  if (identical(watcher, "signals")) {
+    # signals-driven ticker
+    sig_reader <- shiny::reactivePoll(
+      intervalMillis = as.integer(signals_interval_ms), session = session,
+      checkFunc = function() {
+        if (!dir.exists(signals_dir)) return("")
+        p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
+        if (!length(p)) return("")
+        i <- file.info(p)
+        paste(rownames(i), as.double(i$mtime), collapse="|")
+      },
+      valueFunc = function() {
+        p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
+        p
+      }
+    )
+    shiny::observeEvent(sig_reader(), ignoreInit = TRUE, {
+      paths <- sig_reader()
+      if (length(paths)) {
+        rv_beat(shiny::isolate(rv_beat())+1L)
+        try(unlink(paths, force = TRUE), silent = TRUE)
+      }
+    })
+    # fallback timer only while there are active jobs, for timeouts
+    shiny::observe({
+      if (!(length(st$active) > 0L)) return()
+      shiny::invalidateLater(as.integer(timeout_fallback_ms), session)
+      rv_beat(shiny::isolate(rv_beat())+1L)
+    })
+  } else {
+    shiny::observe({
+      shiny::invalidateLater(.interval_ms_val(),session)
+      rv_beat(shiny::isolate(rv_beat())+1L)
+    })
+  }
   
   
   

@@ -5,9 +5,12 @@ bg_debug_panel <- function(journal_reactive) {
   shiny::uiOutput(outputId = "bg_debug_panel", container = shiny::div)
 }
 
-#' Server binder for debug panel
-#' @param output Shiny output list (server-side)
-#' @param journal_reactive A reactive() returning the jobs data.frame
+#' Lier le panneau de debug
+#'
+#' Lie la sortie UI `output$bg_debug_panel` à un journal réactif.
+#'
+#' @param output Objet `output` de Shiny.
+#' @param journal_reactive Réactif (`reactive()`/`reactiveVal()`) retournant un data.frame de jobs.
 #' @export
 bg_bind_debug_panel <- function(output, journal_reactive) {
   output$bg_debug_panel <- shiny::renderUI({

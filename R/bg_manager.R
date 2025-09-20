@@ -341,6 +341,12 @@ invisible(id)
               level = "hard_debug",
               .fields = list(job_id = x$id, phase = "spawn_start"))
       
+      
+      
+      
+      environment(child_fun) <- environment(x$callable)
+      
+    
       p <- bg_fast_start(
         child_fun,
         args = list(callable = x$callable, args = x$args,

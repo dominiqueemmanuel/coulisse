@@ -68,7 +68,7 @@ bg_manager_create(
 \item{signals_dir}{Chemin du répertoire où les processus enfants écrivent les fichiers
 de signal (\code{*.sig}) en mode \code{watcher = "signals"}. Par défaut \code{tempdir()}.}
 
-\item{signals_interval_ms}{Intervalle (ms) du \code{reactivePoll()} pour contrôler la
+\item{signals_interval_ms}{Intervalle (ms) du \code{start_sig_watcher()} pour contrôler la
 fréquence de vérification de la \code{mtime} des fichiers de signaux.}
 
 \item{timeout_fallback_ms}{Intervalle (ms) d'un tick de secours \emph{léger} utilisé
@@ -88,7 +88,7 @@ Deux modes de réveil (watchers) sont disponibles :
 \itemize{
 \item \strong{"beat"} (historique) : une boucle \code{observe()} + \code{invalidateLater()} réveille
 régulièrement la logique (polling périodique).
-\item \strong{"signals"} (nouveau) : un \code{reactivePoll()} observe un répertoire de \emph{signaux}
+\item \strong{"signals"} (nouveau) : un \code{start_sig_watcher()} observe un répertoire de \emph{signaux}
 (fichiers \code{*.sig}) écrits par les processus enfants ; ne relit que si quelque chose a changé.
 }
 }

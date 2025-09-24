@@ -8,7 +8,7 @@
 #' \itemize{
 #' \item \strong{"beat"} (historique) : une boucle \code{observe()} + \code{invalidateLater()} réveille
 #'   régulièrement la logique (polling périodique).
-#' \item \strong{"signals"} (nouveau) : un \code{reactivePoll()} observe un répertoire de \emph{signaux}
+#' \item \strong{"signals"} (nouveau) : un \code{start_sig_watcher()} observe un répertoire de \emph{signaux}
 #'   (fichiers \code{*.sig}) écrits par les processus enfants ; ne relit que si quelque chose a changé.
 #' }
 #'
@@ -33,7 +33,7 @@
 #' @param watcher \code{"beat"} (par défaut) ou \code{"signals"}. Sélectionne le mécanisme de réveil.
 #' @param signals_dir Chemin du répertoire où les processus enfants écrivent les fichiers
 #'   de signal (\code{*.sig}) en mode \code{watcher = "signals"}. Par défaut \code{tempdir()}.
-#' @param signals_interval_ms Intervalle (ms) du \code{reactivePoll()} pour contrôler la
+#' @param signals_interval_ms Intervalle (ms) du \code{start_sig_watcher()} pour contrôler la
 #'   fréquence de vérification de la \code{mtime} des fichiers de signaux.
 #' @param timeout_fallback_ms Intervalle (ms) d'un tick de secours \emph{léger} utilisé
 #'   uniquement lorsqu'il y a des jobs actifs, afin d'évaluer les timeouts de démarrage/exécution
@@ -381,27 +381,36 @@ invisible(id)
   rv_beat <- shiny::reactiveVal(0L)
   if (identical(watcher, "signals")) {
     # signals-driven ticker
-    sig_reader <- shiny::reactivePoll(
-      intervalMillis = as.integer(signals_interval_ms), session = session,
-      checkFunc = function() {
-        if (!dir.exists(signals_dir)) return("")
-        p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
-        if (!length(p)) return("")
-        i <- file.info(p)
-        paste(rownames(i), as.double(i$mtime), collapse="|")
-      },
-      valueFunc = function() {
-        p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
-        p
-      }
+    # sig_reader <- shiny::reactivePoll(
+    #   intervalMillis = as.integer(signals_interval_ms), session = session,
+    #   checkFunc = function() {
+    #     if (!dir.exists(signals_dir)) return("")
+    #     p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
+    #     if (!length(p)) return("")
+    #     i <- file.info(p)
+    #     paste(rownames(i), as.double(i$mtime), collapse="|")
+    #   },
+    #   valueFunc = function() {
+    #     p <- list.files(signals_dir, pattern="\\.sig$", full.names = TRUE, no.. = TRUE)
+    #     p
+    #   }
+    # )
+    # shiny::observeEvent(sig_reader(), ignoreInit = TRUE, {
+    #   paths <- sig_reader()
+    #   if (length(paths)) {
+    #     rv_beat(shiny::isolate(rv_beat())+1L)
+    #     try(unlink(paths, force = TRUE), silent = TRUE)
+    #   }
+    # })
+    
+    #replacement par un mécanismske laissant le Flush tranquille
+    start_sig_watcher_exact(
+      session = session,
+      signals_dir = signals_dir,
+      interval_ms = as.integer(signals_interval_ms),
+      rv_beat = rv_beat,              # ta reactiveVal existante
+      pattern = "\\.sig$"
     )
-    shiny::observeEvent(sig_reader(), ignoreInit = TRUE, {
-      paths <- sig_reader()
-      if (length(paths)) {
-        rv_beat(shiny::isolate(rv_beat())+1L)
-        try(unlink(paths, force = TRUE), silent = TRUE)
-      }
-    })
     # fallback timer only while there are active jobs, for timeouts
     shiny::observe({
       if (!(length(st$active) > 0L)) return()

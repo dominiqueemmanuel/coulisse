@@ -1,7 +1,7 @@
 Package: coulisse
 Type: Package
 Title: Jobs en arriere-plan pour Shiny via 'callr'
-Version: 0.1.7
+Version: 0.1.8
 Authors@R: 
     person(given = "Dominique",
            family = "Emmanuel",
@@ -20,7 +20,8 @@ Imports:
     qs (>= 0.25.5),
     shiny (>= 1.8.0),
     htmltools,
-    timevis
+    timevis,
+    later
 Suggests:
     testthat (>= 3.1.0),
 	  bs4Dash
